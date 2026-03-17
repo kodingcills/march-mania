@@ -6,4 +6,4 @@ mlflow.db
 .env
 .env.*
 .python-version
-data/raw/MMasseyOrdinals.csv
+data/
