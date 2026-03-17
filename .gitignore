@@ -2,3 +2,6 @@
 .vscode/
 .aim/
 mlflow.db
+.DS_Store
+.env
+.env.*
