@@ -6,5 +6,5 @@ mlflow.db
 .env
 .env.*
 .python-version
-data/
+data/raw/
 __pycache__/
