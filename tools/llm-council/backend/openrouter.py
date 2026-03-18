@@ -89,11 +89,11 @@ async def query_model(
                     system_instruction = msg["content"]
                 elif msg["role"] == "user":
                     formatted_contents.append(
-                        types.Content(role="user", parts=[types.Part.from_text(msg["content"])])
+                        types.Content(role="user", parts=[types.Part.from_text(text=msg["content"])])
                     )
                 elif msg["role"] == "assistant":
                     formatted_contents.append(
-                        types.Content(role="model", parts=[types.Part.from_text(msg["content"])])
+                        types.Content(role="model", parts=[types.Part.from_text(text=msg["content"])])
                     )
 
             config = types.GenerateContentConfig()

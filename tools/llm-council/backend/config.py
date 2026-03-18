@@ -10,14 +10,14 @@ load_dotenv(find_dotenv(usecwd=True))
 # automatically from the .env file by the respective clients in openrouter.py.
 
 # Council members - list of model identifiers with 'provider/' prefix
+# Council members - list of model identifiers with 'provider/' prefix
 COUNCIL_MODELS = [
-    "anthropic/claude-opus-4.6",     # The Lead Architect (Code & Context)
-    "openai/gpt-5.4-thinking",       # The Adversarial Auditor (Finding Leakage)
-    "google/gemini-3.1-pro",         # The Data Pragmatist (Logic & Multimodal)
+    "anthropic/claude-3-opus-20240229",  # Or "anthropic/claude-3-7-sonnet-20250219" for the newer architecture
+    "openai/o3-mini",                    # OpenAI's actual "thinking" model identifier
+    "google/gemini-2.5-pro",             # Or gemini-1.5-pro depending on your Google tier
 ]
 
 # Chairman model - synthesizes final response
-CHAIRMAN_MODEL = "anthropic/claude-opus-4.6"
-
+CHAIRMAN_MODEL = "anthropic/claude-3-opus-20240229"
 # Data directory for conversation storage
 DATA_DIR = "data/conversations"
