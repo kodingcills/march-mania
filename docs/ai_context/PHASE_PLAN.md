@@ -11,7 +11,7 @@ It defines:
 - what is **in scope**
 - what is **out of scope**
 - the **acceptance criteria** required to advance
-- the **common failure modes** most likely to cause temporal leakage, zone contamination, provenance drift, or label-boundary violations
+- the **common failure modes** most likely to cause configuration drift, irreproducibility, stale experiment state, or accidental architecture creep
 
 This document is subordinate only to:
 1. `MASTER_ARCHITECTURE_V2.md`
@@ -23,21 +23,19 @@ If a coding task conflicts with this phase plan, the task must be narrowed, defe
 
 ## Current Program State
 
-**Current Project Status:** Phase 1 — Foundation + Single Model  
-**Current Active Step:** Step 4 — Dataset Materialization & Orchestration
+**Current Project Status:** Phase 2 — Tracking & Reproducibility  
+**Current Active Step:** Step 1 — Pipeline Configuration & Hashing
 
-**Primary Objective of Phase 1:**  
-Build the leak-proof, deterministic path from raw competition tables to typed, zone-safe dataset contracts, without yet introducing any model, calibrator, router, or experiment-tracking logic.
+**Primary Objective of Phase 2:**  
+Build the reproducibility and lineage substrate required before model training, calibration fitting, router experimentation, or cross-fold experiment management are allowed.
 
-**Success Condition for Step 4:**  
-We have a deterministic, provenance-safe materialization layer that:
-- loads the required raw tables cleanly
-- respects `FoldContext`
-- produces **three disjoint zone outputs**
-- preserves the **EvalDataset / EvalLabels firewall**
-- generates the **full tournament all-pairs evaluation matrix**
-- stamps all materialized artifacts with **fold-local provenance**
-- does not yet invoke any modeling or tracking code
+**Success Condition for Phase 2:**  
+Every model run, calibration run, and evaluation artifact can eventually be tied back to:
+- a frozen pipeline configuration
+- a deterministic configuration hash
+- explicit feature flags
+- explicit experimental-path enablement
+- stable provenance and reproducibility policy
 
 ---
 
@@ -45,246 +43,193 @@ We have a deterministic, provenance-safe materialization layer that:
 
 The following decisions are active architectural law for this step:
 
-1. **Temporal Zoning Law**
-   - Zone A = Train
-   - Zone B = Calibration
-   - Zone C = Evaluation
-   - Materialization must preserve these as physically distinct outputs
+1. **Immutability Law**
+   - Core configuration must be immutable
+   - No runtime mutation of pipeline settings is allowed once a config is constructed
 
-2. **Type Firewall Law**
-   - `TrainDataset` and `CalDataset` may carry labels
-   - `EvalDataset` must not carry labels
-   - `EvalLabels` must remain physically separate and only be materialized explicitly
-   - No convenience API may recombine them
+2. **Determinism Law**
+   - Configuration hashing must be deterministic
+   - Equivalent configurations must yield identical hashes
+   - Distinct configurations must yield distinct hashes
 
-3. **Zone C Permutation Law**
-   - `EvalDataset` must represent the full tournament all-pairs candidate space
-   - The materializer must not restrict Zone C to only realized tournament games
-   - This prevents bracket-topology leakage
+3. **No Hidden State Law**
+   - Configuration must not depend on ambient environment variables, implicit defaults, mutable globals, or hidden runtime state
 
-4. **Day 133 Cutoff Law**
-   - Feature eligibility remains bounded by `DayNum < 133`
-   - Step 4 must respect the already-built feature layer and may not introduce post-cutoff contamination through joins or loader shortcuts
+4. **Explicit Experimental-Path Law**
+   - Experimental components must be opt-in through explicit feature flags
+   - Experimental flags must be part of the config state and part of the hash
 
-5. **Provenance Law**
-   - Every materialized dataset must be stamped with the active `fold_id`
-   - Fold provenance must remain explicit, not inferred
+5. **No Architecture Creep Law**
+   - Step 1 builds configuration and hashing only
+   - It must not drift into model implementation, calibration logic, tracking transport, manifests, or experiment running
 
-6. **No Architecture Creep Law**
-   - Step 4 builds loading + materialization only
-   - It must not drift into model training, calibration, routing, tracking, or experiment aggregation
-
-7. **Determinism Law**
-   - Materialization must be deterministic for a given `FoldContext`
-   - No random subsampling, shuffling, or non-deterministic ordering is allowed in this step
+6. **Reproducibility Law**
+   - Configuration must be serializable into a stable representation suitable for hashing and later manifest inclusion
+   - Hashing must reflect the true logical config state, not incidental object identity
 
 ---
 
 ## Recently Completed
 
-### Phase 1, Step 1 — Foundation
-Completed:
-- temporal skeleton
-- cutoff policy
-- leakage guards
+## Phase 1 — Foundation
+Completed and green:
 
-Outcome:
-- fold context exists
-- cutoff enforcement exists
-- base runtime leakage assertions exist
+### Step 1 — Temporal Skeleton
+Built:
+- `fold_context.py`
+- `cutoff_policy.py`
+- `leakage_guard.py`
 
-### Phase 1, Step 2 — Contracts
-Completed:
+### Step 2 — Data Contracts
+Built:
 - `TrainDataset`
 - `CalDataset`
 - `EvalDataset`
 - `EvalLabels`
 
-Outcome:
-- strict type firewall exists
-- immutable/read-only dataset boundaries exist
-
-### Phase 1, Step 3 — Features
-Completed:
+### Step 3 — Feature Engineering
+Built:
 - `RollingFeatureStore`
 - `MasseyOrdinalExtractor`
 - `FeatureAssembler`
 
+### Step 4 — Materialization
+Built:
+- `RawTableLoader`
+- `DatasetMaterializer`
+
 Outcome:
-- temporally safe feature extraction exists
-- LAD logic exists
-- canonical matchup assembly exists
-- provenance stamping exists in assembled outputs
-- **185 total tests green**
+- stateless, leak-safe data factory is complete
+- all-pairs Zone C generation exists
+- type firewall is intact
+- provenance stamping is present at the dataset layer
+
+**Current test status:** **221/221 tests green**
 
 ---
 
 ## Current Objective
 
-## Phase 1, Step 4 — Dataset Materialization & Orchestration
+## Phase 2, Step 1 — Pipeline Configuration & Hashing
 
-### Target Files
-1. `ncaa_pipeline/data/materializer.py`
-2. `ncaa_pipeline/data/loader.py`
+### Target File
+1. `ncaa_pipeline/context/pipeline_config.py`
 
 ### Primary Goal
-Build the “glue layer” that converts raw competition tables plus a `FoldContext` into the correct typed dataset contracts for:
-- training
-- calibration
-- evaluation inputs
-- evaluation labels
+Create the single canonical, immutable configuration object that will govern:
+- baseline model hyperparameters
+- experimental model toggles
+- calibration bounds
+- feature-path toggles
+- deterministic run identity through a stable `config_hash()`
 
-This step is about **zone-safe construction**, not model consumption.
+This step is about **configuration discipline**, not model execution.
 
 ---
 
-## Step 4 Detailed Requirements
+## Step 1 Detailed Requirements
 
-### A. `loader.py`
-This module is responsible for deterministic raw-table loading and schema validation.
-
-#### Required behavior
-- load required competition tables from disk
-- validate required columns exist
-- return pandas DataFrames, not dataset objects
-- remain deterministic and side-effect-light
-- make no modeling assumptions
+### A. `PipelineConfig`
+Create a single immutable configuration contract that centralizes the pipeline’s tunable and switchable behavior.
 
 #### Required design intent
-- simple
+- frozen
 - explicit
-- testable
-- easy to mock in unit tests
-- no hidden caching unless clearly scoped and safe
+- hashable through a stable logical representation
+- easy to serialize
+- easy to inspect
+- safe to include in manifests later
+- hostile to silent default drift
 
-#### Loader scope
-The loader may load only the tables needed for Step 4, such as:
-- regular-season detailed results
-- Massey ordinals
-- tournament seeds
-- tournament compact results if needed for calibration/eval label derivation
-- tournament slot/pair support only if strictly needed
+#### Required structural properties
+- must use `@dataclass(frozen=True)`
+- should use `slots=True` if consistent with current codebase style
+- must contain only explicit fields
+- must not rely on nested mutable dicts/lists unless converted to immutable equivalents
+- must not contain file handles, model objects, DataFrames, or runtime-only state
+
+---
+
+### B. Required Configuration Domains
+
+At minimum, `PipelineConfig` must centralize the following:
+
+#### 1. Baseline model config
+For the baseline LightGBM path, include explicit defaults such as:
+- objective = `"binary"`
+- max_delta_step = `1.0`
+
+If additional baseline-safe parameters are included, they must be:
+- explicit
+- phase-appropriate
+- stable under hashing
+
+Do **not** overbuild the full model grid-search universe here.
+
+#### 2. Calibration config
+Include the bounds and settings needed for later calibration phases, at minimum:
+- `a` bounds: `0.3` to `3.0`
+- `b` bounds: `-2.0` to `2.0`
+
+These are config values only.
+This step must **not** implement calibration fitting.
+
+#### 3. Feature-path flags
+Include explicit flags for experimental feature/model paths, including:
+- `enable_tabpfn`
+- `enable_graph_features`
+
+Optional additional flags are acceptable if they clearly correspond to already-known architecture decisions, but do not bloat this object with speculative future flags.
+
+#### 4. Reproducibility metadata fields
+If this step includes fields like:
+- global random seed
+- deterministic mode
+- feature family toggles
+
+they must be:
+- explicit
+- stable
+- included in hashing
+
+---
+
+## Required Hashing Behavior
+
+### `config_hash()`
+`PipelineConfig` must implement a method:
+
+- `config_hash() -> str`
+
+#### Required semantics
+- returns a deterministic SHA256 hex string
+- reflects the full logical state of the configuration
+- does not depend on object memory address, field insertion accidents, or runtime ordering quirks
+- must be stable across repeated calls
+- must change if any meaningful configuration value changes
+
+#### Approved logical strategy
+The hash should be computed from a deterministic serialized representation of the config state, such as:
+- sorted-key JSON built from immutable primitive values
+- or an equivalent stable canonical encoding
 
 #### Must not do
-- no feature engineering
-- no dataset typing
-- no fold splitting
-- no tracking
-- no silent schema coercion
-- no hidden filesystem magic
-
----
-
-### B. `materializer.py`
-This module is responsible for converting raw DataFrames plus `FoldContext` into the typed zone datasets.
-
-#### Required behavior
-- accept raw DataFrames and `FoldContext`
-- invoke the already-built feature layer rather than reimplementing feature logic
-- build:
-  - `TrainDataset`
-  - `CalDataset`
-  - `EvalDataset`
-  - `EvalLabels` (when explicitly requested / appropriate)
-- keep train/cal/eval physically distinct
-- stamp all materialized outputs with the active `fold_id`
-- preserve deterministic ordering
-
-#### Required design intent
-- the materializer is a coordinator, not a feature engine
-- it must reuse:
-  - `FoldContext`
-  - `Day133CutoffPolicy`
-  - `RollingFeatureStore`
-  - `MasseyOrdinalExtractor`
-  - `FeatureAssembler`
-  - dataset contracts from Step 2
-- it must not take on model, calibration, or tracking responsibilities
-
-#### Zone semantics
-- **Zone A / TrainDataset:** historical regular-season/tournament-derived training examples appropriate for the current fold
-- **Zone B / CalDataset:** calibration-period examples with labels
-- **Zone C / EvalDataset:** full all-pairs tournament candidate matrix, no labels
-- **Zone C / EvalLabels:** realized evaluation labels kept separate from `EvalDataset`
-
-#### Critical boundary rule
-The materializer must never attach `.y` or equivalent label-bearing fields to `EvalDataset`.
-
----
-
-## Zone-Specific Materialization Laws
-
-### Zone A — Train
-Must produce:
-- feature matrix `X`
-- labels `y`
-- explicit provenance (`fold_id`)
-- deterministic row ordering
-
-Must not:
-- include calibration or evaluation data
-- include post-cutoff feature contamination
-- depend on tournament future structure beyond what is valid for that fold
-
-### Zone B — Calibration
-Must produce:
-- feature matrix `X`
-- labels `y`
-- explicit provenance (`fold_id`)
-
-Must not:
-- include evaluation labels
-- leak Zone C structure into calibration examples
-
-### Zone C — Evaluation Inputs
-Must produce:
-- full all-pairs matchup feature matrix
-- no labels
-- explicit provenance (`fold_id`)
-
-Must not:
-- filter down to realized games only
-- expose a `.y`
-- infer later-round matchup existence from actual outcomes
-
-### Zone C — Evaluation Labels
-Must produce:
-- labels only for the realized evaluation targets
-- explicit provenance (`fold_id`)
-
-Must remain:
-- physically separate from `EvalDataset`
-- inaccessible to any fit/calibration path in this step
-
----
-
-## All-Pairs Evaluation Rule
-
-For tournament evaluation, the materializer must generate the full combinatorial candidate space.
-
-### Required behavior
-- generate all tournament-eligible team pairs for the fold’s evaluation season
-- produce the complete unordered matchup space
-- canonicalize team order before assembly
-- ensure deterministic ordering of rows
-
-### Why this exists
-If the materializer only constructs the realized tournament games, the mere existence of later-round matchups can leak earlier outcomes.
-The all-pairs matrix prevents this structural leakage.
+- no use of Python’s built-in `hash()`
+- no unstable stringification of objects
+- no omission of experimental flags
+- no omission of nested config state if nested sub-config dataclasses are used
 
 ---
 
 ## In Scope Right Now
 
-Only the following are in scope for Step 4:
+Only the following are in scope for Step 1:
 
-- raw table loading
-- schema validation for required tables
-- fold-aware dataset materialization
-- train/cal/eval zoning
-- all-pairs evaluation matrix generation
-- provenance stamping (`fold_id`)
-- tests for disjointness, label separation, determinism, and permutation completeness
+- immutable pipeline configuration design
+- deterministic config hashing
+- configuration serialization helpers if needed
+- tests proving hashing and immutability behavior
+- explicit defaults for baseline model path, calibration bounds, and experimental flags
 
 ---
 
@@ -292,130 +237,149 @@ Only the following are in scope for Step 4:
 
 The following must **not** be built yet:
 
-### Modeling
+### Model Code
 - `LightGBMBinaryCore`
 - `TabPFNCore`
 
-### Calibration / Ensemble Logic
-- any calibrator
-- any router
-- any ensemble weighting
-- any prediction fusion
+### Calibration Fitting
+- `NelderMeadCalibrator`
+- any Platt / affine-logit fitting implementation
+- any optimizer wrappers
 
-### Tracking / Experiment Infrastructure
+### Routing / Ensembling
+- `SimpleAverageRouter`
+- `PerformanceWeightedRouter`
+- any ensemble weighting logic
+
+### Tracking Transport
 - `AimMLflowTracker`
-- manifests
-- run lineage persistence
 
-### Outer-loop Experiment Logic
-- bootstrap confidence intervals
-- full experiment runner
+### Manifest / Lineage Persistence
+- `RunManifest`
+
+### Experiment Lifecycle
+- `ExperimentRunner`
+- bootstrap CI logic
 - cross-fold aggregation
-- model comparison logic
 
-If any of these seem “helpful” to complete Step 4, treat that as drift unless explicitly approved.
+If any of these seem “helpful” to complete Step 1, treat that as drift unless explicitly approved.
 
 ---
 
-## Deliverables for Step 4
+## Deliverables for Step 1
 
-To complete Step 4, the following must exist:
+To complete Step 1, the following must exist:
 
-1. `ncaa_pipeline/data/loader.py`
-2. `ncaa_pipeline/data/materializer.py`
-3. one or more dedicated test modules for Step 4 behavior
+1. `ncaa_pipeline/context/pipeline_config.py`
+2. one or more dedicated tests for configuration immutability and hashing behavior
 
 At minimum, tests must prove:
-- correct schema enforcement in the loader
-- materializer respects `FoldContext`
-- Zone A / B / C are disjoint by construction
-- `EvalDataset` has no labels
-- `EvalLabels` remain separate
-- Zone C all-pairs generation is complete and deterministic
-- all outputs are stamped with `fold_id`
-- no Step 4 code invokes model/calibrator/router/tracker code
+- config is frozen
+- config hash is stable
+- changing a meaningful field changes the hash
+- equivalent configs produce the same hash
+- experimental flags participate in the hash
+- serialization is deterministic
 
 ---
 
 ## Acceptance Criteria (Must Pass Before Advancing)
 
-Before Step 4 is considered complete, all of the following must be proven via `pytest`:
+Before Step 1 is considered complete, all of the following must be proven via `pytest`:
 
-1. `loader.py` fails loudly when required columns are missing
-2. materializer produces `TrainDataset`, `CalDataset`, `EvalDataset`, and `EvalLabels` with the correct contract types
-3. `EvalDataset` does not expose labels
-4. `EvalLabels` are constructed separately and cannot be confused with `EvalDataset`
-5. all materialized outputs carry the active `fold_id`
-6. Zone A / B / C are disjoint according to the fold definition
-7. Zone C materialization generates the full all-pairs matchup set, not only realized games
-8. team ordering in Zone C is canonical and deterministic
-9. repeated materialization with identical inputs and `FoldContext` produces identical outputs
-10. no Step 4 code imports or calls model, calibration, routing, or tracking components
-11. tests run without network calls and without depending on future-phase modules
+1. `PipelineConfig` is immutable after instantiation
+2. `config_hash()` returns a deterministic SHA256 string
+3. repeated calls to `config_hash()` on the same object return the same value
+4. two logically identical configs produce the same hash
+5. changing any meaningful hyperparameter changes the hash
+6. changing `enable_tabpfn` changes the hash
+7. changing `enable_graph_features` changes the hash
+8. calibration bounds are part of the hash
+9. config serialization does not depend on field ordering accidents
+10. no Step 1 code imports model, calibration, routing, tracking, or manifest modules
+11. tests run without network calls and without depending on future-phase code
 
 ---
 
-## Phase Gate to Advance to Step 5
+## Phase 2 Milestones
+
+### Step 1 — Pipeline Configuration & Hashing
+Build:
+- `PipelineConfig`
+- deterministic `config_hash()`
+- config tests
+
+### Step 2 — Experiment Tracking
+Build:
+- `AimMLflowTracker`
+- write-only tracking interface
+- no hidden reads of eval labels or future fold state
+
+### Step 3 — Run Lineage
+Build:
+- `RunManifest`
+- ability to anchor outputs to config hash, environment, code version, and data provenance
+
+### Step 4 — Cross-Fold Aggregation
+Build:
+- `ExperimentRunner`
+- fold lifecycle management
+- aggregate metric computation
+- 95% bootstrap confidence intervals
+
+These are future milestones only.
+They must not be started in Step 1.
+
+---
+
+## Phase Gate to Advance to Step 2
 
 ### Gate Name
-**Phase 1 / Step 4 Materialization Integrity Gate**
+**Phase 2 / Step 1 Configuration Integrity Gate**
 
 ### Required Evidence
-- all Step 4 tests pass
-- all zone boundaries are physically preserved
-- eval labels remain separate from eval inputs
-- all-pairs evaluation generation is correct and deterministic
-- provenance stamping is present on all materialized datasets
+- all config tests pass
+- hash behavior is deterministic
+- no mutable config loopholes exist
+- experimental flags are explicit and hashed
+- no hidden architecture creep into model/tracking code
 
 ### Promotion Rule
-Step 5 may begin only after Step 4 passes with:
+Step 2 may begin only after Step 1 passes with:
 - all tests green
 - no unresolved architectural contradictions
-- no temporary shortcuts in zoning or provenance
-- no hidden coupling to models or experiment infrastructure
-
----
-
-## Anticipated Next Step
-
-## Phase 1, Step 5 — Baseline Model Integration
-Planned focus:
-- first baseline model interface
-- safe consumption of `TrainDataset` / `CalDataset` / `EvalDataset`
-- probability semantics at the model boundary
-- no router / no ensemble / no advanced tracking yet
-
-This step must only begin after the dataset materialization boundary is fully stable.
+- no ambiguous hashing behavior
+- no temporary shortcuts in config serialization
 
 ---
 
 ## Common Failure Modes to Watch For
 
-The following are the most likely implementation mistakes during Step 4:
+The following are the most likely implementation mistakes during Step 1:
 
-1. restricting Zone C to only realized tournament games
-2. attaching labels to `EvalDataset` “for convenience”
-3. recombining `EvalDataset` and `EvalLabels` in the materializer
-4. bypassing `FoldContext` and materializing from ad hoc season logic
-5. reimplementing feature logic inside the materializer instead of calling Step 3 components
-6. losing deterministic ordering in the all-pairs matrix
-7. failing to stamp `fold_id` onto outputs
-8. introducing raw file loading assumptions into tests
-9. coupling loader logic to feature logic too tightly
-10. importing future-phase components into Step 4
+1. using Python’s built-in `hash()` instead of deterministic SHA256
+2. including mutable containers directly in config state
+3. forgetting to include feature flags in the hash
+4. forgetting to include calibration bounds in the hash
+5. creating a config object that depends on ambient environment or hidden defaults
+6. building a giant speculative mega-config for future phases
+7. allowing semantically identical configs to serialize differently
+8. mixing runtime state into configuration state
+9. importing model or tracking code into the config layer
+10. treating “config exists” as equivalent to “reproducibility is solved”
 
 ---
 
 ## Change-Control Rule for This Step
 
 Any proposal to:
-- weaken the eval label firewall
-- restrict Zone C to realized games
-- materialize without provenance
-- merge loading and feature engineering into one layer
-- skip typed dataset contracts
-- bypass `FoldContext`
-- expose labels through convenience APIs
+- make config mutable
+- allow hidden defaults
+- exclude experimental flags from the hash
+- exclude calibration bounds from the hash
+- place runtime objects inside the config
+- let config hashing depend on nondeterministic serialization
+- broaden Step 1 into model/tracker/manifest work
 
 must be treated as an architectural change request, not a local implementation choice.
 
@@ -426,8 +390,5 @@ must be treated as an architectural change request, not a local implementation c
 Example commands for this step:
 
 ```bash
-pytest tests/test_tier1_foundation.py -q
-pytest tests/test_datasets.py -q
-pytest tests/test_features.py -q
-pytest tests/test_materializer.py -q
+pytest tests/test_pipeline_config.py -q
 pytest -q
